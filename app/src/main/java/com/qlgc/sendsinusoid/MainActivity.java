@@ -1,5 +1,8 @@
 package com.qlgc.sendsinusoid;
 
+import android.media.AudioFormat;
+import android.media.AudioManager;
+import android.media.AudioTrack;
 import android.os.Handler;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -26,7 +29,7 @@ public class MainActivity extends AppCompatActivity {
 
     final private static float Frequency  = 440.0f;// generated sinusoidal signal
     final private static String IP_ADDRESS = "10.64.16.12";
-    private boolean status = false;
+    private boolean status = true;
 
     private TextView textView;
     private EditText myEditTextHz, myEditTextIP;
@@ -37,16 +40,26 @@ public class MainActivity extends AppCompatActivity {
     private int NFrameTimer,NFrameSocket;
 
 
+    private boolean playMode = true;
+    private int audioFormat = AudioFormat.ENCODING_PCM_16BIT;
+    private AudioTrack player;
+    private int playBufSize = AudioTrack.getMinBufferSize((int)sampleRate, AudioFormat.CHANNEL_OUT_MONO, audioFormat);
+
+
     Timer timer;
     TimerTask timerTask;
 
     //we are going to use a handler to be able to run in our TimerTask
     final Handler handler = new Handler();
 
-    final byte[] buffer = new byte[N*2];
-    final double[] piftIndex = new double[N];
-    final double step = Frequency*N/sampleRate*Math.PI*2;
-    final short[] shortBuffer = new short[N];
+    private byte[] buffer = new byte[N*2];
+    private double[] piftIndex = new double[N];
+    private double step = Frequency*N/sampleRate*Math.PI*2;
+    private short[] shortBuffer = new short[N];
+
+    private short[] shortBufferPlay1 = new short[N];
+    private short[] shortBufferPlay2 = new short[N];
+    private int playFlag=1; // which buffer to play
 
 
 
@@ -95,6 +108,13 @@ public class MainActivity extends AppCompatActivity {
         if (timer != null) {
             timer.cancel();
             timer = null;
+        }
+
+        if (playMode) {
+            player.flush();
+            player.stop();
+            player.release();
+            Log.d("VS","Player released");
         }
 
 //        socket.close();
@@ -169,6 +189,14 @@ public class MainActivity extends AppCompatActivity {
                                 piftIndex[i] += step;
                             }
 
+                            if (playFlag==1) {
+                                System.arraycopy(shortBuffer, 0, shortBufferPlay2, 0, N);
+                                playFlag=2;
+                            } else {
+                                System.arraycopy(shortBuffer, 0, shortBufferPlay1, 0, N);
+                                playFlag=1;
+                            }
+
                             // We did some changes here
                             // The first one will be the Frame Number
                             shortBuffer[0]= (short) NFrameSocket;
@@ -228,31 +256,55 @@ public class MainActivity extends AppCompatActivity {
 
 
     public void startTimer() {
-            //set a new Timer
-            timer = new Timer();
-            //initialize the TimerTask's job
-            timerTask = new TimerTask() {
-                public void run() {
-                    //use a handler to run a toast that shows the current timestamp
-                    handler.post(new Runnable() {
-                        public void run() {
 
-                            handler.post(new Runnable(){
-                                @Override
-                                public void run() {
-                                    //textView.setText(Integer.toString(NFrameTimer));
-                                }
-                            });
+        if (playMode) {
+            player = new AudioTrack(AudioManager.STREAM_MUSIC,
+                    (int) sampleRate,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    playBufSize,
+                    AudioTrack.MODE_STREAM);
+            player.setPlaybackRate((int) sampleRate);
+            Log.w("VS", "Player initialized");
+            player.play();
+            //writeBuffer(); // started another thread to buffer data to the player
+        }
 
-                            NFrameTimer++;
 
-                        }
-                    });
-                }
-            };
+        //set a new Timer
+        timer = new Timer();
+        //initialize the TimerTask's job
+        timerTask = new TimerTask() {
+            public void run() {
+                // The following works for only API 23 and above
+//                if (playMode) {
+//                    if (playFlag == 1) {
+//                        player.write(shortBufferPlay1, 0, N, AudioTrack.WRITE_NON_BLOCKING);
+//                    } else {
+//                        player.write(shortBufferPlay2, 0, N, AudioTrack.WRITE_NON_BLOCKING);
+//                    }
+//                }
 
-            //schedule the timer, after the first 1000ms the TimerTask will run every 40ms
-            timer.schedule(timerTask, 3000, 40); //
+                //use a handler to run a toast that shows the current timestamp
+                handler.post(new Runnable() {
+                    public void run() {
+
+                        handler.post(new Runnable(){
+                            @Override
+                            public void run() {
+                                //textView.setText(Integer.toString(NFrameTimer));
+                            }
+                        });
+
+                        NFrameTimer++;
+
+                    }
+                });
+            }
+        };
+
+        //schedule the timer, after the first 1000ms the TimerTask will run every 40ms
+        timer.schedule(timerTask, 3000, 40); //
 
     }
 
