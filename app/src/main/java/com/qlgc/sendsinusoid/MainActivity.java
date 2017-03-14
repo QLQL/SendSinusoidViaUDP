@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
 public class MainActivity extends AppCompatActivity {
 
     final private static float Frequency  = 440.0f;// generated sinusoidal signal
-    final private static String IP_ADDRESS = "192.168.0.11";//"10.33.17.190";//"131.227.95.234";//"10.64.8.78";
+    final private static String IP_ADDRESS = "10.64.16.12";
     private boolean status = false;
 
     private TextView textView;
@@ -34,7 +34,7 @@ public class MainActivity extends AppCompatActivity {
     private double sampleRate = 48000.0;
     private int startTimeIndex = 0;
     private int N = (int)(sampleRate*0.04); // Each frame have this many samples
-    private int NFrame;
+    private int NFrameTimer,NFrameSocket;
 
 
     Timer timer;
@@ -70,8 +70,10 @@ public class MainActivity extends AppCompatActivity {
         textView.setText("Start ......");
 
         status = true;
+        NFrameTimer = 0;
+        NFrameSocket = 0;
+        startTimer();
         startStreaming();
-
 
         Button startButton = (Button) findViewById(R.id.startButton);
         startButton.setEnabled(false);
@@ -87,6 +89,7 @@ public class MainActivity extends AppCompatActivity {
         textView.setText("Finish ......");
 
         status = false;
+
 
         //stop the timer, if it's not already null
         if (timer != null) {
@@ -118,22 +121,26 @@ public class MainActivity extends AppCompatActivity {
         for(int i=0;i<N;i++){
             piftIndex[i] = Frequency*i/sampleRate*Math.PI*2;
         }
+        Thread udpSendThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
 
-        try {
-            // create new UDP socket
-            final DatagramSocket socket  = new DatagramSocket();// <-- create an unbound socket first
+                try{
+                    Thread.sleep(1000);
+                } catch (InterruptedException e){
+                    e.printStackTrace();
+                }
+
+                try {
+                    // create new UDP socket
+                    final DatagramSocket socket  = new DatagramSocket();// <-- create an unbound socket first
 
 
-            Log.d("UDP", "Socket Created");
+                    Log.d("UDP", "Socket Created");
 
-//            handler.post(new Runnable(){
-//                public void run() {
-//                    textView.setText("abcde");
-//                }
-//            });
-            // First get the Frequency and IP address from the text field 10.64.8.78
-            handler.post(new Runnable(){
-                public void run() {
+                    // First get the Frequency and IP address from the text field 10.64.8.78
+                    handler.post(new Runnable(){
+                        public void run() {
 //                            String tmp = myEditTextHz.getText().toString();
 //                            Pattern p = Pattern.compile("[0-9]*\\.?[0-9]+");
 //                            Matcher m = p.matcher(tmp);
@@ -141,40 +148,30 @@ public class MainActivity extends AppCompatActivity {
 //                                float Frequency = Float.parseFloat(m.group());
 //                            }
 //                            IP_ADDRESS = myEditTextIP.getText().toString();
-                    Toast.makeText(getApplicationContext(), "The frequency is: " + Float.toString(Frequency), Toast.LENGTH_LONG).show();
-                    // TODO add some grammar check to the IP_ADDRESS
-                    Log.w("UDP","IP address " + IP_ADDRESS);
-                }
-            });
+                            Toast.makeText(getApplicationContext(), "The frequency is: " + Float.toString(Frequency), Toast.LENGTH_LONG).show();
+                            // TODO add some grammar check to the IP_ADDRESS
+                            Log.w("UDP","IP address " + IP_ADDRESS);
+                        }
+                    });
 
-            // get server name
+                    // get server name
 
-            final InetAddress serverAddr = InetAddress.getByName(IP_ADDRESS);
-            Log.w("UDP", "Connecting "+IP_ADDRESS);
+                    final InetAddress serverAddr = InetAddress.getByName(IP_ADDRESS);
+                    Log.w("UDP", "Connecting "+IP_ADDRESS);
 
-
-            //set a new Timer
-            timer = new Timer();
-            //initialize the TimerTask's job
-            timerTask = new TimerTask() {
-                public void run() {
-                    //use a handler to run a toast that shows the current timestamp
-                    handler.post(new Runnable() {
-                        public void run() {
-
-                            handler.post(new Runnable(){
-                                @Override
-                                public void run() {
-                                    //textView.setText(Arrays.toString(EngeryBuffer));
-                                    textView.setText(Integer.toString(NFrame));
-                                }
-                            });
+                    while (status) {
+                        while(NFrameSocket<NFrameTimer){
+                            NFrameSocket = NFrameTimer;
 
                             for(int i=0;i<N;i++){
                                 double tmp = 0.05*Math.sin(piftIndex[i]);
                                 shortBuffer[i] = (short)(tmp*32768);
                                 piftIndex[i] += step;
                             }
+
+                            // We did some changes here
+                            // The first one will be the Frame Number
+                            shortBuffer[0]= (short) NFrameSocket;
 
                             // short to byte
                             byte byte1, byte2;
@@ -193,134 +190,72 @@ public class MainActivity extends AppCompatActivity {
                             try {
                                 // send the UDP packet
                                 socket.send(packet);
-                                Toast.makeText(getApplicationContext(),"MeawMeaw",Toast.LENGTH_LONG).show();
-                                NFrame++;
+                                //Toast.makeText(getApplicationContext(),"MeawMeaw",Toast.LENGTH_LONG).show();
+                                handler.post(new Runnable(){
+                                    @Override
+                                    public void run() {
+                                    //textView.setText(Arrays.toString(EngeryBuffer));
+                                    textView.setText(Integer.toString(NFrameSocket));
+                                    }
+                                });
                             } catch (Exception e) {
                                 e.printStackTrace();
                                 Log.w("UDP", "C: Sending just failed");
                             }
+
+                        }
+
+                        try {
+                            Thread.sleep(10);
+                        } catch (InterruptedException e){
+                            e.printStackTrace();
+                        }
+                    }
+
+                } catch (Exception e) {
+                    Log.w("UDP", "C: Error", e);
+                    //e.printStackTrace();
+                }
+
+            }
+        });
+
+        // start the streaming thread
+        udpSendThread.start();
+
+    }
+
+
+
+    public void startTimer() {
+            //set a new Timer
+            timer = new Timer();
+            //initialize the TimerTask's job
+            timerTask = new TimerTask() {
+                public void run() {
+                    //use a handler to run a toast that shows the current timestamp
+                    handler.post(new Runnable() {
+                        public void run() {
+
+                            handler.post(new Runnable(){
+                                @Override
+                                public void run() {
+                                    //textView.setText(Integer.toString(NFrameTimer));
+                                }
+                            });
+
+                            NFrameTimer++;
+
                         }
                     });
                 }
             };
 
             //schedule the timer, after the first 1000ms the TimerTask will run every 40ms
-            timer.schedule(timerTask, 5000, 2000); //
-
-        } catch (Exception e) {
-            Log.w("UDP", "C: Error", e);
-            //e.printStackTrace();
-        }
-
+            timer.schedule(timerTask, 3000, 40); //
 
     }
 
-//    public void startStreaming() {
-//
-//        final Handler handler = new Handler();
-//
-//
-//        Thread udpSendThread = new Thread(new Runnable() {
-//
-//            @Override
-//            public void run() {
-//                //while(true){
-//                // pause the programme for 1ooo milliseconds
-//                try {
-//                    Thread.sleep(1000);
-//                } catch (InterruptedException e1) {
-//                    // TODO Auto-generated catch block
-//                    e1.printStackTrace();
-//                }
-//
-//
-//                try {
-//
-//                    // create new UDP socket
-//                    DatagramSocket socket = new DatagramSocket();
-//                    Log.d("UDP", "Socket Created");
-//
-//
-//                    byte[] buffer = new byte[N*2];
-//
-//                    double[] piftIndex = new double[N];
-//                    for(int i=0;i<N;i++){
-//                        piftIndex[i] = Frequency*i/sampleRate*Math.PI*2;
-//                    }
-//                    double step = Frequency*N/sampleRate*Math.PI*2;
-//                    short[] shortBuffer = new short[N];
-//                    Log.d("UDP","Buffer created of size " + N*2);
-//
-//                    // First get the Frequency and IP address from the text field 10.64.8.78
-//                    handler.post(new Runnable(){
-//                        public void run() {
-////                            String tmp = myEditTextHz.getText().toString();
-////                            Pattern p = Pattern.compile("[0-9]*\\.?[0-9]+");
-////                            Matcher m = p.matcher(tmp);
-////                            if (m.find()) {
-////                                float Frequency = Float.parseFloat(m.group());
-////                            }
-////                            IP_ADDRESS = myEditTextIP.getText().toString();
-//                            Toast.makeText(getParent(), "The frequency is: " + Float.toString(Frequency), Toast.LENGTH_LONG).show();
-//                            // TODO add some grammar check to the IP_ADDRESS
-//                            Log.w("UDP","IP address " + IP_ADDRESS);
-//                        }
-//                    });
-//                    // get server name
-//
-//                    InetAddress serverAddr = InetAddress.getByName(IP_ADDRESS);
-//                    Log.w("UDP", "Connecting "+IP_ADDRESS);
-//
-//                    while (status) {
-//
-//                        handler.post(new Runnable(){
-//                            @Override
-//                            public void run() {
-//                                //textView.setText(Arrays.toString(EngeryBuffer));
-//                                textView.setText(Integer.toString(NFrame));
-//                            }
-//                        });
-//
-//                        for(int i=0;i<N;i++){
-//                            double tmp = 0.05*Math.sin(piftIndex[i]);
-//                            shortBuffer[i] = (short)(tmp*32768);
-//                            piftIndex[i] += step;
-//                        }
-//
-//                        // short to byte
-//                        byte byte1, byte2;
-//                        for (int i=0;i<N;i++) {
-//                            byte1 = (byte) (shortBuffer[i]&0xFF); // the low byte
-//                            byte2 = (byte) ((shortBuffer[i]>>8)&0xFF); // the high byte
-//                            buffer[i*2] = byte1;
-//                            buffer[i*2+1] = byte2;
-//                        }
-//
-//                        // create a UDP packet with data and its destination ip & port
-//                        DatagramPacket packet = new DatagramPacket(buffer, 2*N, serverAddr, 5001);
-//                        Log.w("UDP", "C: Sending the current frame");
-//
-//                        try {
-//                            // send the UDP packet
-//                            socket.send(packet);
-//                            NFrame++;
-//                        } catch (Exception e) {
-//                            Log.w("UDP", "C: Sending just failed");
-//                        }
-//                    }
-//                } catch (Exception e) {
-//                    Log.w("UDP", "C: Error", e);
-//                    //e.printStackTrace();
-//                }
-//
-//
-//            }
-//
-//        });
-//
-//        //start the streaming thread
-//        udpSendThread.start();
-//    }
 
 
 }
